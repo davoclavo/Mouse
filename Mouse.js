@@ -93,7 +93,7 @@ void function(){
     this.top = 0;
     this.left = 0;
     this.buttons = 0;
-    self.active = false;
+    this.active = false;
     this.listeners = Object.create(null);
     this.lastActivity = Date.now();
 
@@ -103,7 +103,7 @@ void function(){
       self.lastActivity = e.timeStamp;
       self.last = e;
       self.buttons = e.buttons;
-      this.lastType = e.name;
+      self.lastType = e.name;
       self.emit(e);
     }
 
@@ -133,10 +133,9 @@ void function(){
 
   // Mouse re-implements the event handlers because it isn't a DOM element nor an EventTarget nor any tangible object
   Mouse.prototype.on = function on(types, handler){
-    if (types === '*')
-      types = allMouse;
+    types === '*' && (types = allMouse);
 
-    types.split(' ').forEach(function(type){
+    types.split(/\s+/).forEach(function(type){
       type = translate[type];
       if (!(type in this))
         this[type] = [];
@@ -146,7 +145,9 @@ void function(){
 
   Mouse.prototype.once = function once(types, handler){
     var self = this;
-    types.split(' ').forEach(function(type){
+    types === '*' && (types = allMouse);
+
+    types.split(/\s+/).forEach(function(type){
       type = translate[type];
       self.on(type, function single(e){
         self.off(type, single);
@@ -159,7 +160,7 @@ void function(){
     if (types === '*')
       types = allMouse;
 
-    types.split(' ').forEach(function(type){
+    types.split(/\s+/).forEach(function(type){
       type = translate[type];
       if (type in this) {
         var index = this[type].indexOf(handler);
