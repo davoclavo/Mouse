@@ -11,175 +11,187 @@ void function(){
     ? { x: 'pageXOffset', y: 'pageYOffset' }
     : { x: 'scrollX', y: 'scrollY' };
 
-
-  // instance of MouseEvent to check against
-  var test = document.createEvent('MouseEvent');
-
-  // check whether MouseEvent provides "buttons"
-  if (!('buttons' in test )) {
-    void function(){
-      // shimming "buttons" requires keeping track of the buttons
-      // buttons are powers of 2 so we can use bitwise operations to handle them
-      var mask = 0;
-      var count = 0;
-
-      function states(){
-        return { left:   (mask & 1) > 0,
-                 middle: (mask & 2) > 0,
-                 right:  (mask & 4) > 0 };
-      }
-
-      function getButtons(){
-        return mask;
-      }
-
-      Object.defineProperties(MouseEvent.prototype, {
-        // provide buttons via accessor
-        buttons: { get: getButtons,
-                   enumerable: true,
-                   configurable: true },
-        // interpret the mask as an object
-        states: { value: states,
-                   configurable: true,
-                   writable: true }
-      });
-
-      window.addEventListener('mousedown', function(e){
-        // add button's bit to mask
-        mask |= 1 << e.button;
-        count++;
-      }, true);
-
-      window.addEventListener('mouseup', function(e){
-        // remove button's bit from mask
-        if (--count < 0) count = 0;
-        if (count)
-          mask &= ~(1 << e.button);
-        else
-          mask = 0;
-      }, false);
-    }();
-  }
-
   // strip 'mouse' from mouse events to avoid redundency
   var translate = {
+    down: 'down',
+    up: 'up',
+    move: 'move',
+    over: 'over',
+    out: 'out',
+    grab: 'grab',
+    drag: 'drag',
+    drop: 'drop',
+
     click: 'click',
+    wheel: 'wheel',
     contextmenu: 'click',
     dblclick: 'dblclick',
     mousedown: 'down',
     mouseup: 'up',
-    mouseover: 'enter',
     mousemove: 'move',
-    mouseout: 'leave',
+    mouseover: 'over',
+    mouseout: 'out',
     mousewheel: 'wheel',
-    down: 'down',
-    up: 'up',
-    over: 'over',
-    move: 'move',
-    out: 'out',
-    wheel: 'wheel'
   };
 
-  var untranslate = {};
-  Object.keys(translate).forEach(function(name){
-    untranslate[translate[name]] = name;
-  });
+  var states = function(states, i){
+    while (i--) {
+      states[i] = Object.freeze({
+        left:   (i & 1) > 0,
+        middle: (i & 2) > 0,
+        right:  (i & 4) > 0
+      });
+    }
+    return states;
+  }([], 8);
 
-  var allMouse = 'over move out down up wheel click dblclick';
+  var allMouse = 'move over out down up wheel click dblclick grab drag drop';
+
+  function listen(view, handlers){
+    for (var k in handlers)
+      view.addEventListener(k, handlers[k], true);
+  }
+
 
   function Mouse(view){
+    if (!(this instanceof Mouse))
+      return new Mouse(view);
+
     var self = this;
+    var update = this.update.bind(this);
+    var count = 0;
+
     this.view = view;
-    this.top = 0;
-    this.left = 0;
+    this.x = 0;
+    this.y = 0;
     this.buttons = 0;
+    this.buttonStates = states[0];
     this.active = false;
     this.listeners = Object.create(null);
     this.lastActivity = Date.now();
+    this.dragging = false;
 
-    function set(e){
-      self.top = e.clientX;
-      self.left = e.clientY;
-      self.lastActivity = e.timeStamp;
-      self.last = e;
-      self.buttons = e.buttons;
-      self.lastType = e.name;
+    function dispatch(e){
+      self.update(e);
       self.emit(e);
     }
 
-    function update(e){
-      self.active = true;
-      set(e);
-    }
-
-    'mousemove mousedown mouseup mousewheel click dblclick contextmenu'.split(' ').forEach(function(type){
-      view.addEventListener(type, update, true);
-    });
-
-    view.addEventListener('mouseover', function(e){
-      if (e.relatedTarget === null) {
-        self.active = true;
-        set(e);
+    var events = {
+      mousewheel: dispatch,
+      dblclick: dispatch,
+      mouseup: dispatch,
+      click: function click(e){
+        self.update(e);
+        if (self.dragging) {
+          self.lastType = 'drop';
+          self.emit(e);
+          self.lastType = 'click';
+          self.dragging = false;
+        }
+        self.emit(e);
+        // remove button's bit from mask
+        self.buttons &= ~(1 << e.button);
+        self.buttonStates = states[self.buttons % 8];
+      },
+      mouseover: function over(e){
+        if (e.relatedTarget === null) {
+          self.update(e);
+          self.emit(e);
+        }
+      },
+      mouseout: function out(e){
+        if (e.relatedTarget === null) {
+          self.update(e);
+          if (self.dragging) {
+            self.lastType = 'drop';
+            self.emit(e);
+          }
+          self.update(e);
+          self.emit(e);
+        }
+      },
+      mousedown: function down(e){
+        // add button's bit to mask
+        self.buttons |= 1 << e.button;
+        self.buttonStates = states[self.buttons % 8];
+        self.update(e);
+        self.emit(e);
+      },
+      contextmenu: function rightclick(e){
+        if (self.buttons !== 4 || self.dragging)
+          e.preventDefault();
+        events.click(e);
+      },
+      mousemove: function move(e){
+        if (self.dragging) {
+          self.update(e);
+          self.lastType = 'drag';
+          self.emit(e);
+        } else if (self.buttons && self.lastType === 'down') {
+          self.update(self.last);
+          self.dragging = true;
+          self.lastType = 'grab';
+          self.emit(self.last);
+        }
+        self.update(e);
+        self.emit(e);
       }
-    }, true);
+    };
 
-    view.addEventListener('mouseout', function(e){
-      if (e.relatedTarget === null) {
-        self.active = false;
-        set(e);
-      }
-    }, true);
+    listen(view, events);
   }
 
   // Mouse re-implements the event handlers because it isn't a DOM element nor an EventTarget nor any tangible object
-  Mouse.prototype.on = function on(types, handler){
-    types === '*' && (types = allMouse);
-
-    types.split(/\s+/).forEach(function(type){
-      type = translate[type];
-      if (!(type in this))
-        this[type] = [];
-      this[type].push(handler);
-    }, this.listeners);
-  };
-
-  Mouse.prototype.once = function once(types, handler){
-    var self = this;
-    types === '*' && (types = allMouse);
-
-    types.split(/\s+/).forEach(function(type){
-      type = translate[type];
-      self.on(type, function single(e){
-        self.off(type, single);
-        handler.call(self, e);
+  Mouse.prototype = {
+    constructor: Mouse,
+    emit: function emit(event){
+      var listeners = this.listeners[this.lastType];
+      if (listeners)
+        for (var i=0; i < listeners.length; i++)
+          listeners[i].call(this, event);
+    },
+    on: function on(types, handler){
+      types === '*' && (types = allMouse);
+      types.split(/\s+/).forEach(function(type){
+        type = translate[type];
+        this[type] || (this[type] = []);
+        this[type].push(handler);
+      }, this.listeners);
+    },
+    once: function once(types, handler){
+      this.on(types, function single(e){
+        handler.call(this, e);
+        this.off(types, single);
       });
-    });
-  };
-
-  Mouse.prototype.off = function off(types, handler){
-    if (types === '*')
-      types = allMouse;
-
-    types.split(/\s+/).forEach(function(type){
-      type = translate[type];
-      if (type in this) {
-        var index = this[type].indexOf(handler);
-        if (~index)
-          this[type].splice(index, 1);
-      }
-    }, this.listeners);
-  };
-
-  Mouse.prototype.emit = function emit(event){
-    var type = translate[event.type];
-    event.name = type;
-    if (type in this.listeners) {
-      var listeners = this.listeners[type];
-      for (var i=0; i < listeners.length; i++)
-        listeners[i].call(this, event);
+    },
+    off: function off(types, handler){
+      types === '*' && (types = allMouse);
+      types.split(/\s+/).forEach(function(type){
+        var listeners = this[translate[type]];
+        if (listeners) {
+          var index = listeners.indexOf(handler);
+          if (~index)
+            listeners.splice(index, 1);
+        }
+      }, this.listeners);
+    },
+    update: function update(e){
+      e.name = this.lastType = translate[e.type];
+      e.buttons = this.buttons;
+      e.buttonStates = this.buttonStates;
+      this.x = e.clientX;
+      this.y = e.clientY;
+      this.lastActivity = e.timeStamp;
+      this.last = e;
     }
   };
 
-  Window.prototype.Mouse = Mouse;
+  Object.keys(Mouse.prototype).forEach(function(key){
+    Object.defineProperty(Mouse.prototype, key, { enumerable: false });
+  });
+
+  if (typeof Window !== 'undefined')
+    Window.prototype.Mouse = Mouse;
+
   window.mouse = new Mouse(window);
 }();
