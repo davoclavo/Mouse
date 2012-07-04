@@ -43,9 +43,11 @@
       };
     }
 
-    function makeBookmarklet(scripts, fn){
+    function bookmarklet(name, scripts, fn){
       scripts = '['+scripts.map(function(src){ return '"'+src+'"' }).join(',')+']';
-      return ('javascript:('+load+'()('+scripts+','+fn+'))')
+      var a = document.body.appendChild(document.createElement('a'));
+      a.textContent = name;
+      a.href = ('javascript:('+load+'()('+scripts+','+fn+'))')
         .replace(/^\s*\/\/.+\n/g, '')
         .replace(/\t/g, ' ')
         .replace(/ +/g, ' ')
@@ -53,34 +55,37 @@
         .replace(/\n/g, '');
     }
 
-    var a = document.createElement('a');
-    a.href = makeBookmarklet(['https://raw.github.com/Benvie/Mouse/master/Mouse.js'], function(){
-      var style, x, y;
+    function moveAnything(){
+      var style, x, y, z;
 
-      mouse.on('down', function(e){
+      mouse.on('down', 'right', function(e){
         e.preventDefault();
       });
 
-      mouse.on('grab', function(e){
+      mouse.on('grab', 'right', function(e){
         var computed = getComputedStyle(e.target);
         style = e.target.style;
         x = (parseFloat(computed.left) || 0) - this.x;
         y = (parseFloat(computed.top) || 0) - this.y;
+        z = style.zIndex;
+        style.zIndex = 10000;
         if (computed.position === 'static')
           style.position = 'relative';
       });
 
-      mouse.on('drag', function(e){
+      mouse.on('drag', 'right', function(e){
         style.left = (this.x + x) + 'px';
         style.top = (this.y + y) + 'px';
       });
 
-      mouse.on('drop', function(e){
+      mouse.on('drop', 'right', function(e){
+        style.zIndex = z;
         style = null;
+        e.preventDefault();
       });
-    });
-    a.textContent = 'bookmarklet';
-    document.body.appendChild(a);
+    }
+
+    bookmarklet('Move Anything', ['https://raw.github.com/Benvie/Mouse/master/Mouse.js'], moveAnything);
   }();
   </script>
   </body>

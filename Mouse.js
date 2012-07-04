@@ -34,16 +34,32 @@ void function(){
     mousewheel: 'wheel',
   };
 
-  var states = function(states, i){
+  var states = [], keybinds = Object.create(null);
+  void function(i, name){
     while (i--) {
       states[i] = Object.freeze({
         left:   (i & 1) > 0,
         middle: (i & 2) > 0,
         right:  (i & 4) > 0
       });
+      name = [];
+      states[i].left && name.push('left');
+      states[i].middle && name.push('middle');
+      states[i].right && name.push('right');
+      keybinds[name.join('+')] = i;
     }
-    return states;
-  }([], 8);
+  }(8);
+
+  function interpret(input){
+    if (input == null) return 0;
+    switch (typeof input) {
+      case 'number': return input < 8 ? input : 0;
+      case 'string': return input in keybinds ? keybinds[input] : 0;
+      case 'boolean': return +input;
+      case 'function':
+      case 'object': return (input.left ? 1 : 0) | (input.middle ? 2 : 0) | (input.right ? 4 : 0);
+    }
+  }
 
   var allMouse = 'move over out down up wheel click dblclick grab drag drop';
 
@@ -141,6 +157,15 @@ void function(){
     listen(view, events);
   }
 
+  function findHandler(buttons, handler){
+    if (!handler && typeof buttons === 'function')
+      handler = buttons, buttons = 'buttons' in handler ? handler.buttons : 0;
+    else
+      buttons = interpret(buttons);
+    handler.buttons = buttons;
+    return handler;
+  }
+
   // Mouse re-implements the event handlers because it isn't a DOM element nor an EventTarget nor any tangible object
   Mouse.prototype = {
     constructor: Mouse,
@@ -148,18 +173,21 @@ void function(){
       var listeners = this.listeners[this.lastType];
       if (listeners)
         for (var i=0; i < listeners.length; i++)
-          listeners[i].call(this, event);
+          if (!listeners[i].buttons || listeners[i].buttons === this.buttons)
+            listeners[i].call(this, event);
     },
-    on: function on(types, handler){
+    on: function on(types, buttons, handler){
       types === '*' && (types = allMouse);
+      handler = findHandler(buttons, handler);
       types.split(/\s+/).forEach(function(type){
         type = translate[type];
         this[type] || (this[type] = []);
         this[type].push(handler);
       }, this.listeners);
     },
-    once: function once(types, handler){
-      this.on(types, function single(e){
+    once: function once(types, buttons, handler){
+      handler = findHandler(buttons, handler);
+      this.on(types, handler.buttons, function single(e){
         handler.call(this, e);
         this.off(types, single);
       });
